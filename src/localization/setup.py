@@ -10,10 +10,17 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['config/ekf_local.yaml']),
-        ('share/' + package_name + '/launch', ['launch/local_localization.launch.py']),
+        ('share/' + package_name + '/config', [
+            'config/ekf_local.yaml',
+            'config/ekf_global.yaml',
+            'config/map_anchor.yaml',
+        ]),
+        ('share/' + package_name + '/launch', [
+            'launch/local_localization.launch.py',
+            'launch/dual_ekf_localization.launch.py',
+        ]),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'pyyaml'],
     zip_safe=True,
     maintainer='jinju',
     maintainer_email='wnwlswn23@gmail.com',
@@ -28,6 +35,7 @@ setup(
         'console_scripts': [
             'wheel_odometry = localization.wheel_odometry:main',
             'imu_time_sync = localization.imu_time_sync:main',
+            'gps_odometry = localization.gps_odometry:main',
         ],
     },
 )

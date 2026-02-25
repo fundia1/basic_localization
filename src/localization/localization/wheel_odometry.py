@@ -52,7 +52,7 @@ class WheelOdometryNode(Node):
         self.create_subscription(Imu, '/imu/data', self._on_imu, 10)
 
         # Publishers
-        self._odom_pub = self.create_publisher(Odometry, '/odom', 10)
+        self._odom_pub = self.create_publisher(Odometry, '/odometry/wheel', 10)
         self._tf_broadcaster = TransformBroadcaster(self)
 
         self.get_logger().info(f'WheelOdometry ready (L={WHEELBASE}m, pub_tf={self._pub_tf})')

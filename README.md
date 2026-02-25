@@ -1,7 +1,7 @@
 # Localization
 
-ERP42 실외 주행 로봇의 로컬 오도메트리 패키지.  
-Wheel encoder + IMU를 EKF로 융합하여 `/odometry/filtered`를 발행합니다.
+ERP42 실외 주행 로봇의 로컬/글로벌 오도메트리 패키지.  
+Wheel encoder + IMU + GPS를 Dual EKF로 융합하여 `map → odom → base_link` TF 체인을 발행합니다.
 
 ## 차량 (ERP42 old)
 
@@ -26,19 +26,26 @@ Wheel encoder + IMU를 EKF로 융합하여 `/odometry/filtered`를 발행합니�
 ## 노드 구성
 
 ```
-/erp42_feedback ──┐
-                  ├─► wheel_odometry ──► /odom ──────────────┐
-/imu/data ────────┘                                          ├─► ekf_filter_node ──► /odometry/filtered
-                  (sync_imu:=true 시)                        │
-/imu/data ──► imu_time_sync ──► /imu/data/synced ───────────┘
+                              ┌─────────────────────────────────────────────┐
+/erp42_feedback ──┐           │                                             │
+                  ├─► wheel_odometry ──► /odometry/wheel ──┐               │
+/imu/data ────────┘                                         ├─► local_ekf_node ──► /odometry/local
+                  (sync_imu:=true 시)                       │    (odom → base_link)
+/imu/data ──► imu_time_sync ──► /imu/data/synced ─────────┘
+                                        │
+                                        ├───────────────────┐
+/ublox_gps_node/fix ──► gps_odometry ──► /odometry/gps      ├─► global_ekf_node ──► /odometry/global
+                        (map_anchor.yaml 기준)               │    (map → odom)
+                        /odometry/wheel ────────────────────┘
 ```
 
 | 노드 | 역할 |
 |------|------|
 | `wheel_odometry` | 바퀴 오도메트리 (bicycle kinematic model) + IMU 초기 방향 설정 |
-| `ekf_filter_node` | EKF 센서 융합 (`robot_localization`) |
+| `gps_odometry` | GPS → UTM 변환, datum 기준 로컬 좌표 발행 |
+| `local_ekf_node` | EKF 센서 융합 — odom → base_link TF |
+| `global_ekf_node` | EKF 센서 융합 — map → odom TF |
 | `imu_time_sync` | IMU 타임스탬프를 wall clock으로 재발행 (선택) |
-| `static_transform_publisher` | `base_link → imu_link` TF |
 
 ## 실행
 
@@ -46,32 +53,51 @@ Wheel encoder + IMU를 EKF로 융합하여 `/odometry/filtered`를 발행합니�
 # 빌드
 colcon build --packages-select localization --symlink-install
 
-# 실제 로봇
+# Dual EKF + GPS (map → odom → base_link)
+ros2 launch localization dual_ekf_localization.launch.py
+
+# Local only (odom → base_link)
 ros2 launch localization local_localization.launch.py
 
-# bag 재생 (IMU 타임스탬프 동기화 필요 시)
-ros2 launch localization local_localization.launch.py sync_imu:=true
-
-# bag 재생 (sim time)
-ros2 launch localization local_localization.launch.py use_sim_time:=true sync_imu:=true
+# bag 재생 (IMU 타임스탬프 동기화)
+ros2 launch localization dual_ekf_localization.launch.py sync_imu:=true
 ```
 
-## EKF 설정 (`ekf_local.yaml`)
+## TF 체인
 
-| 센서 | 사용 상태 | 비고 |
-|------|-----------|------|
-| `odom0` (`/odom`) | vx, vy=0 | no-slip 제약 |
-| `imu0` (`/imu/data`) | yaw, vyaw, ax, ay | `sync_imu:=true` 시 `/imu/data/synced`로 자동 전환 |
+```
+map ──(global_ekf_node)──► odom ──(local_ekf_node)──► base_link
+                                                        ├── imu_link    (앞 1m, 위 0.5m)
+                                                        ├── gps         (앞 0.5m, 위 1.5m)
+                                                        ├── velodyne    (앞 1m, 위 1m)
+                                                        └── encoder_link (앞 1m, 오른쪽 0.5m)
+```
+
+## EKF 설정
+
+| 파일 | 센서 | 사용 상태 |
+|------|------|-----------|
+| `ekf_local.yaml` | `odom0` (`/odometry/wheel`) | vx, vy=0 (no-slip) |
+| | `imu0` (`/imu/data`) | yaw, vyaw |
+| `ekf_global.yaml` | `odom0` (`/odometry/gps`) | x, y (GPS 위치) |
+| | `odom1` (`/odometry/wheel`) | vx, vy=0 |
+| | `imu0` (`/imu/data`) | yaw, vyaw |
 
 ## 패키지 구조
 
 ```
 src/localization/
-├── config/ekf_local.yaml
-├── launch/local_localization.launch.py
+├── config/
+│   ├── ekf_local.yaml
+│   ├── ekf_global.yaml
+│   └── map_anchor.yaml
+├── launch/
+│   ├── local_localization.launch.py
+│   └── dual_ekf_localization.launch.py
 ├── localization/
 │   ├── __init__.py
 │   ├── wheel_odometry.py
+│   ├── gps_odometry.py
 │   └── imu_time_sync.py
 ├── package.xml
 ├── setup.py
